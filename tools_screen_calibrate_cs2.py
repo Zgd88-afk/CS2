@@ -16,31 +16,35 @@
 # NOT YET VALIDATED ON A LIVE CS2 INSTALL.
 
 import argparse
+import ctypes
 import json
 import os
 
 import cv2
 import numpy as np
-import win32con
 import win32gui
 import win32ui
 
 from config import csgo_game_res, csgo_img_dimension
 from cs2_config import (find_cs2_window, load_crop_offsets, DEFAULT_CROP_OFFSETS,
-                        OFFSET_FILE)
+                        OFFSET_FILE, PW_RENDERFULLCONTENT)
 
 PREVIEW_WIDTH = 768
 
 
 def capture_full_window(hwin, width, height):
-    """Grab the whole window (title bar included) as a BGRA->BGR numpy image."""
+    """Grab the whole window (title bar included) as BGR.
+
+    Uses PrintWindow(PW_RENDERFULLCONTENT): BitBlt returns stale frames on CS2
+    (see cs2_config.py).
+    """
     hwindc = win32gui.GetWindowDC(hwin)
     srcdc = win32ui.CreateDCFromHandle(hwindc)
     memdc = srcdc.CreateCompatibleDC()
     bmp = win32ui.CreateBitmap()
     bmp.CreateCompatibleBitmap(srcdc, width, height)
     memdc.SelectObject(bmp)
-    memdc.BitBlt((0, 0), (width, height), srcdc, (0, 0), win32con.SRCCOPY)
+    ctypes.windll.user32.PrintWindow(hwin, memdc.GetSafeHdc(), PW_RENDERFULLCONTENT)
 
     signed_ints_array = bmp.GetBitmapBits(True)
     img = np.frombuffer(signed_ints_array, dtype='uint8')

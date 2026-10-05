@@ -87,9 +87,26 @@ def parse_args():
 
 
 def get_monitor_size(monitor_index=1):
-    sct = mss.mss()
+    sct = mss.MSS() if hasattr(mss, 'MSS') else mss.mss()
     mon = sct.monitors[monitor_index]
     return mon["width"], mon["height"]
+
+
+def ensure_foreground(hwin):
+    """Return True if the game window has keyboard/mouse focus.
+
+    Windows blocks SetForegroundWindow from background processes; injecting
+    while another window is focused would type into it (e.g. the editor).
+    """
+    win32gui.SetForegroundWindow(hwin)
+    time.sleep(0.5)
+    if win32gui.GetForegroundWindow() != hwin:
+        print('REFUSING to inject: the CS2 window does NOT have focus '
+              '(input would go to another window).')
+        print('Click ONCE on the game window to bring it to the foreground, '
+              'then run again.')
+        return False
+    return True
 
 
 def gsi_get(path, default=None):
@@ -188,8 +205,8 @@ def mode_smoke(hwin, Wd, Hd, mid_x, mid_y):
     # hardcoded actions to validate the injection pipeline without the model.
     # if the mouse sweep does NOT turn the view, injected mouse input is not
     # reaching the game (focus/admin/AV) - do not proceed to model runs.
-    win32gui.SetForegroundWindow(hwin)
-    time.sleep(0.5)
+    if not ensure_foreground(hwin):
+        return
 
     print('SMOKE 1/5  mouse sweep right (mouse_x=60), 5 s - view should turn right')
     t_end = time.time() + 5
@@ -236,8 +253,8 @@ def mode_calibrate(hwin, Wd, Hd, mid_x, mid_y):
     # i.e. x=30 -> ~1.65 deg/frame. CSGO raw-off training values may differ, so
     # the practical target is: make CS2 turns match what the same model output
     # produced on CSGO (compare vs a legacy run if you do Phase 3 E2).
-    win32gui.SetForegroundWindow(hwin)
-    time.sleep(0.5)
+    if not ensure_foreground(hwin):
+        return
 
     print('make sure the console command  cl_showpos 1  is active - you will')
     print('read the yaw angle from the screen at each phase start/end.\n')
@@ -387,8 +404,8 @@ def run_agent(args, hwin):
     recent_team = []
     recent_val = []
 
-    win32gui.SetForegroundWindow(hwin)
-    time.sleep(0.5)
+    if not ensure_foreground(hwin):
+        return
     mp_restartgame()
     time.sleep(0.5)
 

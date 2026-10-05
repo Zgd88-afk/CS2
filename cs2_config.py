@@ -11,6 +11,7 @@
 #
 # Used by: dm_run_agent_cs2.py, tools_screen_calibrate_cs2.py
 
+import ctypes
 import json
 import os
 
@@ -21,6 +22,12 @@ import win32gui
 import win32ui
 
 from config import csgo_game_res, csgo_img_dimension
+
+# BitBlt on the CS2 window returns a stale, never-updating frame (Source 2 uses
+# DXGI flip-model presentation). PrintWindow with PW_RENDERFULLCONTENT forces
+# DWM to render fresh window content and is the reliable path on CS2; legacy
+# CSGO windows (csgo_branch) work with either, so BitBlt stays as fallback.
+PW_RENDERFULLCONTENT = 0x00000002
 
 # ---------------------------------------------------------------- window title
 # CS2 window is titled 'Counter-Strike 2'. The legacy CSGO branch is kept as a
@@ -107,26 +114,43 @@ def grab_window_cs2(hwin, game_resolution=None, SHOW_IMAGE=False):
     if 'game_resolution' in off:
         game_resolution = tuple(off['game_resolution'])
 
-    width = game_resolution[0] - 2 * offset_sides
-    height = game_resolution[1] - offset_top - offset_bottom
-    if width <= 0 or height <= 0:
+    crop_w = game_resolution[0] - 2 * offset_sides
+    crop_h = game_resolution[1] - offset_top - offset_bottom
+    if crop_w <= 0 or crop_h <= 0:
         raise ValueError(
             'crop offsets leave no image (w=%d, h=%d) - rerun '
-            'tools_screen_calibrate_cs2.py' % (width, height))
+            'tools_screen_calibrate_cs2.py' % (crop_w, crop_h))
+
+    l, t, r, b = win32gui.GetWindowRect(hwin)
+    win_w, win_h = r - l, b - t
 
     hwindc = win32gui.GetWindowDC(hwin)
     srcdc = win32ui.CreateDCFromHandle(hwindc)
     memdc = srcdc.CreateCompatibleDC()
     bmp = win32ui.CreateBitmap()
-    bmp.CreateCompatibleBitmap(srcdc, width, height)
+    bmp.CreateCompatibleBitmap(srcdc, win_w, win_h)
     memdc.SelectObject(bmp)
 
-    memdc.BitBlt((0, 0), (width, height), srcdc,
-                 (offset_sides, bar_height + offset_top), win32con.SRCCOPY)
-
-    signed_ints_array = bmp.GetBitmapBits(True)
-    img = np.frombuffer(signed_ints_array, dtype='uint8')
-    img.shape = (height, width, 4)
+    ok = ctypes.windll.user32.PrintWindow(hwin, memdc.GetSafeHdc(),
+                                          PW_RENDERFULLCONTENT)
+    if ok:
+        # render whole window, then crop in numpy
+        signed_ints_array = bmp.GetBitmapBits(True)
+        img = np.frombuffer(signed_ints_array, dtype='uint8')
+        img.shape = (win_h, win_w, 4)
+        img = img[bar_height + offset_top:bar_height + offset_top + crop_h,
+                  offset_sides:offset_sides + crop_w]
+    else:
+        # legacy fallback (BitBlt): crop at copy time via source origin
+        bmp.DeleteObject()
+        bmp = win32ui.CreateBitmap()
+        bmp.CreateCompatibleBitmap(srcdc, crop_w, crop_h)
+        memdc.SelectObject(bmp)
+        memdc.BitBlt((0, 0), (crop_w, crop_h), srcdc,
+                     (offset_sides, bar_height + offset_top), win32con.SRCCOPY)
+        signed_ints_array = bmp.GetBitmapBits(True)
+        img = np.frombuffer(signed_ints_array, dtype='uint8')
+        img.shape = (crop_h, crop_w, 4)
 
     srcdc.DeleteDC()
     memdc.DeleteDC()
