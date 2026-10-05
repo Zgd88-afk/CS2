@@ -61,10 +61,11 @@ def summarize(name, stats):
     lclick = np.array([s['Lclick'] for s in stats])
     wprob = np.array([s['w'] for s in stats])
     ent = np.array([s['mx_entropy'] for s in stats])
+    val = np.array([s['value'] for s in stats])
     print('[%s] n=%d | Lclick mean %.3f max %.3f | w mean %.3f | '
           'mx entropy mean %.2f/%.2f | value %.3f'
           % (name, len(stats), lclick.mean(), lclick.max(), wprob.mean(),
-             ent.mean(), np.log(23)))
+             ent.mean(), np.log(23), val.mean()))
 
 
 def main():
@@ -76,10 +77,19 @@ def main():
     ap.add_argument('--n-train', type=int, default=300,
                     help='training frames to test (default 300)')
     ap.add_argument('--no-live', action='store_true', help='skip live capture')
+    ap.add_argument('--style', choices=['off', 'on', 'both'], default='off',
+                    help='apply CSGO histogram matching to live frames')
+    ap.add_argument('--build-ref', default=None, metavar='CSGO_NPY',
+                    help='build cs2_style_ref.npz from training data and exit')
     args = ap.parse_args()
 
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
+    if args.build_ref:
+        from cs2_config import build_style_reference
+        build_style_reference(args.build_ref)
+        return
 
     import tensorflow as tf
     for g in tf.config.list_physical_devices('GPU'):
@@ -116,12 +126,16 @@ def main():
 
     # 3) live CS2 capture
     if not args.no_live:
-        from cs2_config import find_cs2_window, grab_window_cs2
+        from cs2_config import find_cs2_window, grab_window_cs2, match_style
         hwnd, _ = find_cs2_window()
         if hwnd:
-            model.reset_states()
-            live_frames = [grab_window_cs2(hwnd) for _ in range(20)]
-            summarize('live-cs2  ', run_source(model, live_frames))
+            variants = (['off', 'on'] if args.style == 'both' else [args.style])
+            for variant in variants:
+                model.reset_states()
+                live_frames = [grab_window_cs2(hwnd) for _ in range(20)]
+                if variant == 'on':
+                    live_frames = [match_style(f) for f in live_frames]
+                summarize('live-cs2-%-3s' % variant, run_source(model, live_frames))
         else:
             print('[live-cs2  ] CS2 window not found, skipped')
 

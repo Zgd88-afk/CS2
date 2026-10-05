@@ -57,6 +57,62 @@ OFFSET_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
 # `cl_showpos 1`, then set MOUSE_SCALE = trained_deg / cs2_deg.
 MOUSE_SCALE = 1.0
 
+# ---------------------------------------------------------------- style matching
+# Test-time visual domain-gap mitigation: recolour each captured CS2 frame so
+# its per-channel histogram matches the CSGO training-data distribution.
+# Reference distribution is built once with tools_model_check.py --build-ref.
+STYLE_MATCH = False  # when True, grab_window_cs2 recolours frames automatically
+STYLE_REF_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              'cs2_style_ref.npz')
+_style_ref_cache = None
+
+
+def build_style_reference(data_npy, n_frames=200, out_path=None):
+    """Compute per-channel reference histograms from CSGO training frames."""
+    import warnings
+    warnings.filterwarnings('ignore')
+    data = np.load(data_npy, allow_pickle=True)
+    idx = np.linspace(0, len(data) - 1, min(n_frames, len(data))).astype(int)
+    hists = np.zeros((3, 256), dtype=np.float64)
+    for i in idx:
+        img = np.asarray(data[i][0])
+        for c in range(3):
+            hists[c] += np.bincount(img[:, :, c].ravel(), minlength=256)
+    hists /= hists.sum(axis=1, keepdims=True)
+    out_path = out_path or STYLE_REF_FILE
+    np.savez_compressed(out_path, hist=hists)
+    print('style reference saved: %s (%d frames from %s)'
+          % (out_path, len(idx), os.path.basename(data_npy)))
+    return hists
+
+
+def _style_ref():
+    global _style_ref_cache
+    if _style_ref_cache is None:
+        if not os.path.isfile(STYLE_REF_FILE):
+            raise RuntimeError(
+                'style reference missing - run: python tools_model_check.py '
+                '--build-ref <csgo training .npy>')
+        with np.load(STYLE_REF_FILE) as z:
+            _style_ref_cache = z['hist']
+    return _style_ref_cache
+
+
+def match_style(img):
+    """Recolour a BGR uint8 frame to match the CSGO training histogram."""
+    ref = _style_ref()
+    ref_cdf = np.cumsum(ref, axis=1)
+    out = np.empty_like(img)
+    for c in range(3):
+        hist = np.bincount(img[:, :, c].ravel(), minlength=256).astype(np.float64)
+        cdf = np.cumsum(hist)
+        if cdf[-1] == 0:
+            continue
+        cdf /= cdf[-1]
+        lut = np.clip(np.interp(cdf, ref_cdf[c], np.arange(256)), 0, 255).astype(np.uint8)
+        out[:, :, c] = cv2.LUT(img[:, :, c], lut)
+    return out
+
 
 def load_crop_offsets():
     """Return crop offsets, preferring cs2_crop_offsets.json if it exists."""
@@ -163,6 +219,8 @@ def grab_window_cs2(hwin, game_resolution=None, SHOW_IMAGE=False):
 
     img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
     img_small = cv2.resize(img, csgo_img_dimension[::-1])
+    if STYLE_MATCH:
+        img_small = match_style(img_small)
 
     if SHOW_IMAGE:
         target_width = 800
