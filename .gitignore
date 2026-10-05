@@ -1,0 +1,15 @@
+# ZCode session files
+.zcode/
+.zcodeignore
+
+# Python
+__pycache__/
+*.py[cod]
+
+# machine-specific outputs (per-user calibration & run artifacts)
+cs2_crop_offsets.json
+rewards_.p
+cs2_agent_data_*.npy
+
+# downloaded model weights (fetch from HuggingFace, see docs)
+model/
