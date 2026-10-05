@@ -13,3 +13,6 @@ cs2_agent_data_*.npy
 
 # downloaded model weights (fetch from HuggingFace, see docs)
 model/
+
+# downloaded archives (kept locally, not for the repo)
+_downloads/
