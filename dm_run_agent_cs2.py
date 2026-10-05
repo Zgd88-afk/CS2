@@ -92,6 +92,17 @@ def get_monitor_size(monitor_index=1):
     return mon["width"], mon["height"]
 
 
+def grab_safe(hwin):
+    """Grab a frame, waiting instead of crashing if the window disappears
+    (minimized/accidentally closed) - resumes automatically when it's back."""
+    while True:
+        try:
+            return grab_window_cs2(hwin)
+        except RuntimeError as e:
+            print('\n%s - waiting for the CS2 window...' % e)
+            time.sleep(2)
+
+
 def ensure_foreground(hwin):
     """Return True if the game window has keyboard/mouse focus.
 
@@ -123,10 +134,12 @@ def gsi_get(path, default=None):
 
 def mp_restartgame():
     # types 'mp_restartgame 1' then 'give weapon_ak47' into the console
-    # (commands verified to still work on CS2 local/offline servers)
+    # (commands verified to still work on CS2 local/offline servers).
+    # NOTE: no trailing Esc presses - on CS2 they open the pause menu and
+    # detach subsequent injected input from the game (found in live testing).
     for c in [cons_char, m_char, p_char, under_char, r_char, e_char, s_char,
               t_char, a_char, r_char, t_char, g_char, a_char, m_char, e_char,
-              space_char, one_char, ret_char, cons_char, esc_char, esc_char]:
+              space_char, one_char, ret_char, cons_char]:
         if c == under_char:
             HoldKey(shift_char)
             HoldKey(under_char)
@@ -141,8 +154,7 @@ def mp_restartgame():
     # give weapon_ak47
     for c in [cons_char, g_char, i_char, v_char, e_char, space_char,
               w_char, e_char, a_char, p_char, o_char, n_char, under_char,
-              a_char, k_char, four_char, seven_char, ret_char, cons_char,
-              esc_char, esc_char]:
+              a_char, k_char, four_char, seven_char, ret_char, cons_char]:
         if c == under_char:
             HoldKey(shift_char)
             HoldKey(under_char)
@@ -257,10 +269,14 @@ def mode_calibrate(hwin, Wd, Hd, mid_x, mid_y):
         return
 
     print('make sure the console command  cl_showpos 1  is active - you will')
-    print('read the yaw angle from the screen at each phase start/end.\n')
+    print('read the yaw angle (ang: pitch yaw roll - 2nd number) from the screen.')
+    print('phases run in fixed order: mouse_x = 10, 30, 60. Watch for prompts.\n')
     for c in [10.0, 30.0, 60.0]:
-        print('=== phase: mouse_x = %g  for 5 s ===' % c)
-        input('note the START yaw, then press Enter...')
+        print('[%s] PHASE mouse_x=%g : note your START yaw NOW - sweep in 10 s'
+              % (time.strftime('%H:%M:%S'), c))
+        time.sleep(10)
+        print('[%s] sweeping mouse_x=%g for 5 s ...'
+              % (time.strftime('%H:%M:%S'), c))
         t_start = time.time()
         k = 0
         while time.time() - t_start < 5.0:
@@ -271,12 +287,12 @@ def mode_calibrate(hwin, Wd, Hd, mid_x, mid_y):
             while time.time() < loop_start + 1 / loop_fps:
                 time.sleep(0.001)
             k += 1
-        input('note the END yaw, then press Enter...')
-        print('frames sent: %d.  deg/frame = deltaYaw / %d' % (k, k))
-        print('training reference for this x: ~%.3f deg/frame (x*0.022*2.5)\n'
-              % (c * 0.022 * 2.5))
-    print('if CS2 turns differ consistently from the reference, set MOUSE_SCALE')
-    print('in cs2_config.py accordingly and re-run this calibration.')
+        print('[%s] phase done (%d frames) - note your END yaw NOW.  '
+              'deg/frame = (end-start)/%d, reference ~%.3f'
+              % (time.strftime('%H:%M:%S'), k, k, c * 0.022 * 2.5))
+        time.sleep(8)
+    print('all sweeps finished - report the six yaw readings (start/end per phase).')
+    print('if yaw wrapped (e.g. 170 -> -170) just report the raw numbers.')
 
 
 def _demo_overlay(img_small, mouse_x_smooth, mouse_y_smooth, keys_pressed,
@@ -352,6 +368,10 @@ def run_agent(args, hwin):
     # tensorflow import happens here so the lightweight test modes start fast;
     # tp_load_model (config.py) loads keras lazily as well
     import tensorflow as tf
+    # allocate VRAM on demand instead of grabbing all of it - the game needs
+    # VRAM too, and a second TF process must still be able to run for diagnostics
+    for _gpu in tf.config.list_physical_devices('GPU'):
+        tf.config.experimental.set_memory_growth(_gpu, True)
     print('tensorflow %s' % tf.__version__)
 
     global server
@@ -411,7 +431,7 @@ def run_agent(args, hwin):
 
     for i in range(0, 16):
         loop_start_time = time.time()
-        img_small = grab_window_cs2(hwin)
+        img_small = grab_safe(hwin)
         x_img = np.expand_dims(img_small, 0)
         x_img = x_img.astype('float16')
         recent_imgs.append(x_img)
@@ -473,7 +493,7 @@ def run_agent(args, hwin):
         del recent_team[0]
         del recent_val[0]
 
-        img_small = grab_window_cs2(hwin)
+        img_small = grab_safe(hwin)
         x_img = np.expand_dims(img_small, 0)
         x_img = x_img.astype('float16')
         recent_imgs.append(x_img)

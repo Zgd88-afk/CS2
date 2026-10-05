@@ -123,6 +123,10 @@ def grab_window_cs2(hwin, game_resolution=None, SHOW_IMAGE=False):
 
     l, t, r, b = win32gui.GetWindowRect(hwin)
     win_w, win_h = r - l, b - t
+    if win32gui.IsIconic(hwin) or win_h < crop_h or win_w < crop_w:
+        raise RuntimeError(
+            'CS2 window not visible (minimized or closed? rect %dx%d)'
+            % (win_w, win_h))
 
     hwindc = win32gui.GetWindowDC(hwin)
     srcdc = win32ui.CreateDCFromHandle(hwindc)
