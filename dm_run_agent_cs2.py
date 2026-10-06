@@ -471,6 +471,15 @@ def run_agent(args, hwin):
     prev_vars = {'gsi_kills': -99, 'gsi_deaths': -99}
     time_for_pass = 0.1
 
+    # wall-stuck rescue: W held while the screen barely changes = grinding a
+    # wall (running normally always changes the frame). After 2 s of that,
+    # override the model's (usually zero) mouse with a forced 1 s turn.
+    prev_img = None
+    w_held = 0
+    rescue_frames = 0
+    rescue_dx = 0.0
+    STUCK_STATIC_THR = 1.5  # mean abs frame diff below this counts as static
+
     while n_loops < 1000 * (mins_per_iter + 0.02):
         if IS_GSI:
             data_all = server.data_all or {}
@@ -583,6 +592,25 @@ def run_agent(args, hwin):
         # MOUSE_SCALE compensates for the raw-input domain gap (see cs2_config)
         mouse_x_smooth = np.clip(mouse_x * MOUSE_SCALE, -300, 300)
         mouse_y_smooth = mouse_y * MOUSE_SCALE
+
+        # wall-stuck detection (after the model's own action choice)
+        if 'w' in keys_pressed:
+            w_held += 1
+        else:
+            w_held = 0
+        if prev_img is None:
+            static = False
+        else:
+            static = float(np.mean(cv2.absdiff(img_small, prev_img))) < STUCK_STATIC_THR
+        prev_img = img_small
+        if w_held > 2 * loop_fps and static and rescue_frames == 0 and IS_MOUSEMOVE:
+            rescue_frames = loop_fps
+            rescue_dx = float(np.random.choice([-300., -200., -100., 100., 200., 300.]))
+            print('\n[stuck rescue] W + static screen -> forcing turn %.0f\n' % rescue_dx)
+        if rescue_frames > 0:
+            mouse_x_smooth = np.clip(rescue_dx * MOUSE_SCALE, -300, 300)
+            mouse_y_smooth = 0.0
+            rescue_frames -= 1
 
         if IS_MOUSEMOVE:
             if IS_SPLIT_MOUSE:
@@ -738,10 +766,16 @@ def main():
         return
 
     hwnd, title = find_cs2_window()
-    if hwnd is None:
-        print('CS2 window not found - start the game (windowed) first.')
-        return
-    print('using window: %r (hwnd=%s)' % (title, hwnd))
+    wait_started = False
+    while hwnd is None or win32gui.IsIconic(hwnd):
+        if not wait_started:
+            print('CS2 window not found/minimized - waiting for the game '
+                  'window (start CS2 and enter a match)...')
+            wait_started = True
+        time.sleep(3)
+        hwnd, title = find_cs2_window()
+    if wait_started:
+        print('window acquired: %r (hwnd=%s)' % (title, hwnd))
     win32gui.SetForegroundWindow(hwnd)
     time.sleep(1)
 
