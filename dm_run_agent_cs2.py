@@ -776,7 +776,17 @@ def main():
         hwnd, title = find_cs2_window()
     if wait_started:
         print('window acquired: %r (hwnd=%s)' % (title, hwnd))
-    win32gui.SetForegroundWindow(hwnd)
+    # the game can be mid-restart between discovery and this call; retry
+    for _attempt in range(10):
+        try:
+            win32gui.SetForegroundWindow(hwnd)
+            break
+        except win32gui.error as e:
+            print('SetForegroundWindow failed (%s) - re-finding window...' % e)
+            time.sleep(3)
+            hwnd, title = find_cs2_window()
+            if hwnd is None:
+                continue
     time.sleep(1)
 
     if args.fps_test:
