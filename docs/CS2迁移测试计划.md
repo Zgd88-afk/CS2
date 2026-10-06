@@ -136,7 +136,80 @@ WASD/开枪标签几乎无法可靠还原；各主播分辨率/准星/HUD/色彩
 
 ---
 
-## 5. 风险与安全边界
+## 5. 电脑重启后的配置恢复清单（录制/运行前必查）
+
+> 硬盘上的东西重启后都在（Python 环境 `csgo_tf210`、模型、已录数据、全部脚本），
+> 需要恢复的只有**游戏内设置**和**运行方式**。逐项打勾后即可开录。
+
+### 5.1 每次都自动可用的部分（无需操作）
+
+| 项目 | 位置 |
+|---|---|
+| Python 环境（TF 2.10.1 GPU） | `D:\Soft_Ware_Download\miniconda3\envs\csgo_tf210` |
+| 预训练模型 + 微调模型 | `D:\ZCode\CSGO\v1\model\` |
+| 已录数据（重录用，含 v2 鼠标标签的试录） | `D:\csgo_data\cs2_ft\`（2 分钟 / 2 文件） |
+| CS2 截屏校准 | `D:\ZCode\CSGO\v1\cs2_crop_offsets.json` |
+
+### 5.2 游戏内设置复刻（每次重启游戏后要确认）
+
+启动 CS2 → **设置**里确认这些没有被重置：
+
+| 设置项 | 目标值 | 备注 |
+|---|---|---|
+| 显示模式 | **窗口化** | 不是全屏/无边框；全屏会让截屏失效 |
+| 分辨率 | **1024×768（4:3）** | 与训练数据一致 |
+| 全局阴影效果等画质 | **全最低** | 减少截屏耗时与画面差异 |
+| 鼠标灵敏度 | **2.50** | 全程不许改，训练部署必须一致 |
+| 启用开发者控制台 | **是** | 按 `~` 能打开 |
+| 准星 | 代码 `CSGO-UKcZG-QN8eW-WQMvd-NX6xr-RPqRP` | 经典静态绿 |
+
+### 5.3 进对局 + 控制台命令（录制前）
+
+主菜单 → **开始游戏 → 练习模式（机器人）→ 死亡竞赛 → 经典模式 → Dust II → 简单 bot**，
+加入 T 阵营后按 `~` 打开控制台，整段粘贴：
+
+```
+sv_cheats 1;
+mp_limitteams 0; mp_autoteambalance 0;
+bot_kick;
+bot_add_t easy; bot_add_t easy; bot_add_t easy;
+bot_add_ct easy; bot_add_ct easy; bot_add_ct easy;
+mp_roundtime 6000;
+sv_infinite_ammo 1;
+fps_max 64;
+mp_warmup_end;
+mp_restartgame 1;
+give weapon_ak47;
+```
+
+确认：6 个 bot 出现、手持 AK47、开枪不减弹药。
+**这次不用输 `record`**（POV demo 无法解析，鼠标标签由录制脚本直接捕获）。
+
+### 5.4 启动录制 / 运行 AI（在项目目录 `D:\ZCode\CSGO\v1`）
+
+```bash
+# 激活环境的方式（Git Bash，本项目约定）：
+export PATH="/d/Soft_Ware_Download/miniconda3/envs/csgo_tf210/Library/bin:/d/Soft_Ware_Download/miniconda3/envs/csgo_tf210/Scripts:/d/Soft_Ware_Download/miniconda3/envs/csgo_tf210:$PATH"
+
+# 录制 60 分钟（数据存 D:\csgo_data\cs2_ft\，断点续录自动编号；按 Q 提前停）
+python dm_record_data_cs2.py --minutes 60
+
+# 或：实机运行 AI 3 分钟验证
+python dm_run_agent_cs2.py --model cs2ft_drop_d1 --demo --minutes 3
+```
+
+（由 ZCode 会话驱动时不需要手动设 PATH，回复指令即可。）
+
+### 5.5 录制纪律（数据质量红线）
+
+- 游戏窗口保持**前台可见**，别最小化、别切出游戏
+- **不按 Tab**（计分板会污染画面），不弹菜单，不改任何设置
+- 正常水平打，主动索敌开枪，多换区域（A/B/中路/出生点都逛）
+- 中途休息按 **Q**，回来续录自动接编号
+
+---
+
+## 6. 风险与安全边界
 
 1. **只打离线 bot 局**：模拟键鼠输入不用于任何对战/官方服务器；账号建议用小号
 2. 训练数据里你的操作水平 = AI 的天花板，录制时按正常水平打即可，不必刻意表演
@@ -146,17 +219,20 @@ WASD/开枪标签几乎无法可靠还原；各主播分辨率/准星/HUD/色彩
 
 ---
 
-## 6. 工具速查
+## 7. 工具速查
 
 | 命令 | 作用 |
 |---|---|
 | `python tools_model_check.py --model <名> --data <训练npy>` | 模型活跃度三源检测（噪声/训练帧/CS2 实时） |
-| `python dm_run_agent_cs2.py --demo --minutes 5` | 实机运行 5 分钟（AI 视野可视化） |
+| `python dm_record_data_cs2.py --minutes 60` | 录制微调数据（v2：WM_INPUT 鼠标捕获，无需录 demo） |
+| `python dm_finetune_cs2.py --epochs 3` | 从预训练底模微调（产出 `cs2ft_drop_d1` + stateful 版） |
+| `python dm_run_agent_cs2.py --model cs2ft_drop_d1 --demo --minutes 3` | 实机运行微调后的 AI |
 | `python dm_run_agent_cs2.py --calibrate` | 鼠标转角标定（配 cl_showpos 1） |
-| `python tools_demo_stats.py *.dem --player <名字>` | demo 成绩统计 |
 | `python tools_screen_calibrate_cs2.py` | 截屏裁剪校准（已预校准，通常无需再跑） |
 
 ---
 
-*文档重写于 2026-10-05。旧版迁移测试计划（冒烟测试/兼容性分析）见 git 历史
-（`130f8b2` 及之前版本）。*
+*文档重写于 2026-10-05；同日补充重启恢复清单（第 5 节）与工具速查更新（第 7 节）。
+当前进度：阶段一完成（直方图匹配无效）、阶段二 v2 管线验证通过（2 分钟试录 → 微调 →
+实机行为激活，commit `65b22fb`），待录 1 小时正式数据后重新微调。旧版迁移测试计划
+（冒烟测试/兼容性分析）见 git 历史（`130f8b2` 及之前版本）。*
