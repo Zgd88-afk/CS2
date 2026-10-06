@@ -63,6 +63,8 @@ def parse_args():
     ap.add_argument('--skip-train', action='store_true',
                     help='skip training, load the saved finetuned model and '
                          'only (re)build the stateful twin')
+    ap.add_argument('--fire-oversample', type=int, default=3,
+                    help='repeat fire-containing sequences N times (1 = off)')
     return ap.parse_args()
 
 
@@ -197,17 +199,37 @@ def m_y_acc(y_true, y_pred):
 
 # ------------------------------------------------------------- data generator
 class NpzDataGenerator(tf.keras.utils.Sequence):
-    """(96-frame sequence) -> 53-col target, mirroring the original generator."""
+    """(96-frame sequence) -> 53-col target, mirroring the original generator.
 
-    def __init__(self, imgs, keys, clicks, mouse, batch_size=1, shuffle=True):
+    Sequences containing left-click fire frames are repeated
+    --fire-oversample times (the original paper's IS_SUBSELECT served the
+    same purpose: combat segments are rare and are what 'meet someone ->
+    aim -> fire' must be learned from).
+    """
+
+    def __init__(self, imgs, keys, clicks, mouse, batch_size=1, shuffle=True,
+                 fire_oversample=3):
         self.imgs, self.keys, self.clicks, self.mouse = imgs, keys, clicks, mouse
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.n_frames = len(imgs)
         n_seq = (self.n_frames - N_TIMESTEPS) // N_TIMESTEPS
-        self.starts = np.arange(n_seq) * N_TIMESTEPS
+        starts = np.arange(n_seq) * N_TIMESTEPS
+        fire_mask = np.array([
+            clicks[int(s):int(s) + N_TIMESTEPS, 0].sum() > 0 for s in starts])
+        n_fire = int(fire_mask.sum())
+        print('generator: %d sequences, %d contain fire (%.1f%%)'
+              % (len(starts), n_fire, 100 * n_fire / max(len(starts), 1)))
+        if fire_oversample > 1 and n_fire:
+            parts = [starts]
+            for _ in range(fire_oversample - 1):
+                parts.append(starts[fire_mask])
+            self.starts = np.concatenate(parts)
+            print('generator: fire oversample x%d -> %d sequences/epoch'
+                  % (fire_oversample, len(self.starts)))
+        else:
+            self.starts = starts
         self.on_epoch_end()
-        print('generator: %d sequences of %d frames' % (len(self.starts), N_TIMESTEPS))
 
     def __len__(self):
         return len(self.starts)
@@ -312,7 +334,8 @@ def main():
                           metrics=[Lclk_acc, m_x_acc, m_y_acc, wasd_acc])
             print('model loaded & compiled')
 
-            gen = NpzDataGenerator(imgs, keys, clicks, mouse, batch_size=1)
+            gen = NpzDataGenerator(imgs, keys, clicks, mouse, batch_size=1,
+                                   fire_oversample=ARGS.fire_oversample)
 
             print('-- finetuning: %d epochs --' % ARGS.epochs)
             hist = model.fit(gen, epochs=ARGS.epochs, verbose=1)
