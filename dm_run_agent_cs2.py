@@ -564,7 +564,14 @@ def run_agent(args, hwin):
                 if np.random.rand() <= reload_prob:
                     keys_pressed.append('r')
 
-            if count_inaction > 8 and IS_MOUSEMOVE:
+            if IS_PROBABILISTIC_ACTIONS and IS_MOUSEMOVE:
+                # sample the mouse bucket from the softmax EVERY frame.
+                # argmax collapses to the centre bucket, and the agent's own
+                # straight-line history then self-reinforces (covariate shift):
+                # it never sees itself turning, so it never turns.
+                mouse_x = np.random.choice(mouse_x_possibles, size=1, p=mouse_x_pred)[0]
+                mouse_y = np.random.choice(mouse_y_possibles, size=1, p=mouse_y_pred)[0]
+            elif count_inaction > 8 and IS_MOUSEMOVE:
                 mouse_x = np.random.choice(mouse_x_possibles, size=1, p=mouse_x_pred)[0]
                 mouse_y = np.random.choice(mouse_y_possibles, size=1, p=mouse_y_pred)[0]
 
