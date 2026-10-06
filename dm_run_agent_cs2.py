@@ -471,11 +471,11 @@ def run_agent(args, hwin):
     prev_vars = {'gsi_kills': -99, 'gsi_deaths': -99}
     time_for_pass = 0.1
 
-    # wall-stuck rescue: W held while the screen barely changes = grinding a
-    # wall (running normally always changes the frame). After 2 s of that,
-    # override the model's (usually zero) mouse with a forced 1 s turn.
+    # wall-stuck rescue: a movement key held while the screen barely changes =
+    # grinding a wall (running normally always changes the frame). After 2 s
+    # of that, override the model's (usually zero) mouse with a forced 1 s turn.
     prev_img = None
-    w_held = 0
+    move_held = 0
     rescue_frames = 0
     rescue_dx = 0.0
     STUCK_STATIC_THR = 1.5  # mean abs frame diff below this counts as static
@@ -594,19 +594,19 @@ def run_agent(args, hwin):
         mouse_y_smooth = mouse_y * MOUSE_SCALE
 
         # wall-stuck detection (after the model's own action choice)
-        if 'w' in keys_pressed:
-            w_held += 1
+        if any(k in keys_pressed for k in ('w', 'a', 's', 'd')):
+            move_held += 1
         else:
-            w_held = 0
+            move_held = 0
         if prev_img is None:
             static = False
         else:
             static = float(np.mean(cv2.absdiff(img_small, prev_img))) < STUCK_STATIC_THR
         prev_img = img_small
-        if w_held > 2 * loop_fps and static and rescue_frames == 0 and IS_MOUSEMOVE:
+        if move_held > 2 * loop_fps and static and rescue_frames == 0 and IS_MOUSEMOVE:
             rescue_frames = loop_fps
             rescue_dx = float(np.random.choice([-300., -200., -100., 100., 200., 300.]))
-            print('\n[stuck rescue] W + static screen -> forcing turn %.0f\n' % rescue_dx)
+            print('\n[stuck rescue] movement + static screen -> forcing turn %.0f\n' % rescue_dx)
         if rescue_frames > 0:
             mouse_x_smooth = np.clip(rescue_dx * MOUSE_SCALE, -300, 300)
             mouse_y_smooth = 0.0
